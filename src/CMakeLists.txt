@@ -1,0 +1,24 @@
+idf_component_register(
+    SRCS
+        "main.cpp"
+        "native_usb.cpp"
+        "transfer.cpp"
+        "event_log.cpp"
+        "usb_fingerprint.cpp"
+        "usb_descriptors.c"
+        "screen.cpp"
+        "lcd/esp_lcd_st7735.c"
+    INCLUDE_DIRS
+        "."
+        "../include"
+    REQUIRES
+        driver
+        esp_timer
+        freertos
+        nvs_flash
+        esp_tinyusb
+        esp_lcd
+        sdmmc
+        fatfs
+        vfs
+)

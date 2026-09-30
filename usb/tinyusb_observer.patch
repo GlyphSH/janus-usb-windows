@@ -1,0 +1,18 @@
+--- a/src/device/usbd.c
++++ b/src/device/usbd.c
+@@
+ #include "tusb.h"
++#include "janus_usb_observer.h"
+@@
+       case DCD_EVENT_SETUP_RECEIVED:
+         if (_usbd_queued_setup == 0) {
+           break;
+         }
+         _usbd_queued_setup--;
++        janus_usb_observe_setup(tud_time_millis() * 1000u,
++                                event.setup_received.bmRequestType,
++                                event.setup_received.bRequest,
++                                event.setup_received.wValue,
++                                event.setup_received.wIndex,
++                                event.setup_received.wLength);
+         TU_LOG_BUF(CFG_TUD_LOG_LEVEL, &event.setup_received, 8);
