@@ -110,6 +110,24 @@ function Receive-DeviceFile {
     return ,$result
 }
 
+function Show-SdStatus {
+    param($SerialPort)
+    $SerialPort.Write("SDINFO`n")
+    try {
+        $reply = $SerialPort.ReadLine().TrimEnd("`r")
+    } catch [System.TimeoutException] {
+        Write-Output 'SD status unknown (timeout)'
+        return
+    }
+    if ($reply -like 'SD *') {
+        Write-Output ("SD write: {0}" -f $reply.Substring(3))
+    } elseif ($reply -eq 'ERR SD') {
+        Write-Output 'SD not written (no card or write failed)'
+    } else {
+        Write-Output ("SD status: {0}" -f $reply)
+    }
+}
+
 function Show-Ports {
     $names = [System.IO.Ports.SerialPort]::GetPortNames() | Sort-Object
     $descriptions = @{}
@@ -170,6 +188,7 @@ try {
         if ((Get-Item -LiteralPath $Source).Length -gt $script:Limit) { throw 'File exceeds 65536 bytes' }
         $original = [System.IO.File]::ReadAllBytes($Source)
         Send-DeviceFile -SerialPort $serial -Data $original
+        Show-SdStatus -SerialPort $serial
     }
     if ($Action -eq 'get' -or $Action -eq 'roundtrip') {
         $received = Receive-DeviceFile -SerialPort $serial

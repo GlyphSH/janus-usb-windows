@@ -11,6 +11,7 @@ int main(){
  assert(t.command("DATA 0 zz")=="ERR HEX");
  assert(t.command("DATA 0 616263")=="OK DATA 3");
  assert(t.command("COMMIT")=="OK COMMIT");
+ assert(t.command("SDINFO")=="ERR SD");
  assert(t.command("READ 0 3")=="DATA 616263");
  assert(t.command("BEGIN 1 0")=="OK BEGIN");
  assert(t.command("DATA 0 64")=="OK DATA 1");

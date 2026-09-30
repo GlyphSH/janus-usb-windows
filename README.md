@@ -5,9 +5,10 @@ tested. The native ESP32-S3 TinyUSB migration is still in progress and has not
 been flashed or validated on a physical host.
 
 Fresh LilyGo T-Dongle S3 firmware: USB CDC serial text-file transfers and a
-physical-button HID shortcut to open Windows CMD. MIT licensed. This first
-version stores one file of up to 64 KiB in RAM; unplugging or resetting clears
-it. Bytes are preserved, including Unicode text and Windows line endings.
+physical-button HID shortcut to open Windows CMD. MIT licensed. Files up to
+64 KiB are staged in RAM and, when an SD card is inserted, also mirrored to
+`/sd/janus-received.bin` on commit. Bytes are preserved, including Unicode
+text and Windows line endings.
 
 ## Build
 
@@ -50,6 +51,23 @@ Transfers use stop-and-wait chunks, CRC32, and exact byte comparison for
 `roundtrip`. CRC detects corruption, not malicious modification. On a timeout,
 reconnect and restart the transfer. An incomplete upload does not replace the
 previous committed file. Only one host tool should use the port at a time.
+After `put`/`roundtrip` the client also queries `SDINFO` and prints whether
+the dongle wrote the file to its SD card.
+
+## SD demo
+
+`tools/demo-sd.bat` is a one-double-click demo for showing the transfer to
+colleagues. It reads `C:\test.txt` (creating it with a timestamped line if
+absent), transfers it to the dongle, and prints the SD-write result. Pass a
+COM port as the first argument, or edit the default at the top of
+`tools/demo-sd.ps1`:
+
+```powershell
+tools\demo-sd.bat COM7
+```
+
+Insert an SD card in the dongle before running. Without one, the transfer
+still succeeds and the client reports `SD not written`.
 
 ## Keyboard demo
 

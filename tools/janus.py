@@ -34,6 +34,14 @@ class Device:
             self.expect(f'DATA {offset} {chunk.hex()}', f'OK DATA {offset + len(chunk)}')
         self.expect('COMMIT', 'OK COMMIT')
 
+    def sdinfo(self):
+        self.port.write(b'SDINFO\n')
+        self.port.flush()
+        answer = self.port.readline(1024)
+        if not answer.endswith(b'\n'):
+            return None
+        return answer.decode('ascii').rstrip('\r\n')
+
     def get(self):
         fields = self.request('INFO').split()
         if len(fields) != 3 or fields[0] != 'FILE':
@@ -87,6 +95,11 @@ def main():
                 raise ValueError("File exceeds 65536 bytes")
             original = args.source.read_bytes()
             device.put(original)
+            reply = device.sdinfo()
+            if reply and reply.startswith('SD '):
+                print(f'SD write: {reply[3:]}')
+            elif reply == 'ERR SD':
+                print('SD not written (no card or write failed)')
         if args.action in ('get', 'roundtrip'):
             received = device.get()
             if original is not None and received != original:

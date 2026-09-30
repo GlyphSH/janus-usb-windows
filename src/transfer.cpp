@@ -1,4 +1,5 @@
 #include "transfer.h"
+#include <cstdio>
 #include <cstring>
 #include <iomanip>
 #include <sstream>
@@ -48,7 +49,21 @@ std::string Transfer::commit() {
  receiving_=false;
  if(crc32(staging_,expected_)!=expected_crc_) return "ERR CRC";
  std::memcpy(file_,staging_,expected_); size_=expected_; present_=true;
+ persist_to_sd();
  return "OK COMMIT";
+}
+void Transfer::persist_to_sd() {
+ sd_written_=false;
+#ifdef ESP_PLATFORM
+ FILE* f=std::fopen(sd_path,"wb");
+ if(!f) return;
+ sd_written_=(std::fwrite(file_,1,size_,f)==size_);
+ std::fclose(f);
+#endif
+}
+std::string Transfer::sdinfo() const {
+ if(!sd_written_) return "ERR SD";
+ return std::string("SD ")+sd_path+" "+std::to_string(size_);
 }
 std::string Transfer::read(const std::string& args) const {
  size_t offset; uint32_t count;
@@ -70,5 +85,6 @@ std::string Transfer::command(const std::string& line) {
  if(verb=="COMMIT") return commit();
  if(verb=="ABORT"){receiving_=false;return "OK ABORT";}
  if(verb=="INFO") return present_ ? "FILE "+std::to_string(size_)+" "+std::to_string(crc32(file_,size_)) : "ERR EMPTY";
+ if(verb=="SDINFO") return sdinfo();
  return "ERR COMMAND";
 }
