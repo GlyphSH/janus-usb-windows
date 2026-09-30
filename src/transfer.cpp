@@ -1,8 +1,12 @@
 #include "transfer.h"
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <iomanip>
 #include <sstream>
+#ifdef ESP_PLATFORM
+#include "event_log.h"
+#endif
 
 static constexpr size_t decoded_chunk_capacity = Transfer::chunk_bytes;
 static_assert(decoded_chunk_capacity == 256, "decoded buffer must match protocol chunk capacity");
@@ -65,6 +69,20 @@ std::string Transfer::sdinfo() const {
  if(!sd_written_) return "ERR SD";
  return std::string("SD ")+sd_path+" "+std::to_string(size_);
 }
+std::string Transfer::sddiag() const {
+#ifdef ESP_PLATFORM
+ if(!sd_mounted()) return std::string("DIAG NO-MOUNT esp_err=")+std::to_string(sd_last_mount_error());
+ FILE* f=std::fopen("/sd/janus-probe","wb");
+ if(!f) return std::string("DIAG NO-WRITE errno=")+std::to_string(errno);
+ int c=std::fputc('x',f);
+ std::fclose(f);
+ ::remove("/sd/janus-probe");
+ if(c==EOF) return "DIAG WRITE-FAIL";
+ return "DIAG OK";
+#else
+ return "DIAG UNSUPPORTED";
+#endif
+}
 std::string Transfer::read(const std::string& args) const {
  size_t offset; uint32_t count;
  if(!present_) return "ERR EMPTY";
@@ -86,5 +104,6 @@ std::string Transfer::command(const std::string& line) {
  if(verb=="ABORT"){receiving_=false;return "OK ABORT";}
  if(verb=="INFO") return present_ ? "FILE "+std::to_string(size_)+" "+std::to_string(crc32(file_,size_)) : "ERR EMPTY";
  if(verb=="SDINFO") return sdinfo();
+ if(verb=="SDDIAG") return sddiag();
  return "ERR COMMAND";
 }

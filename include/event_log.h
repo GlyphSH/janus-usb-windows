@@ -19,3 +19,6 @@ class EventLog {
   uint32_t now_ms() const;
   bool append_file(const char *path, const std::string &data);
 };
+
+bool sd_mounted();
+int sd_last_mount_error();

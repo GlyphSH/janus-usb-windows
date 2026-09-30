@@ -10,6 +10,8 @@
 #include "sdmmc_cmd.h"
 
 namespace {
+bool s_sd_mounted = false;
+int s_sd_last_error = 0;
 constexpr int kSdClock = 12;
 constexpr int kSdCommand = 16;
 constexpr int kSdD0 = 14;
@@ -45,6 +47,8 @@ bool EventLog::begin() {
 
   sdmmc_card_t *card = nullptr;
   esp_err_t err = esp_vfs_fat_sdmmc_mount(kMount, &host, &slot, &mount_cfg, &card);
+  s_sd_last_error = static_cast<int>(err);
+  s_sd_mounted = (err == ESP_OK);
   if (err != ESP_OK) {
     ESP_LOGW(TAG, "sd mount failed: %d (event log disabled)", err);
     ready_ = false;
@@ -55,6 +59,9 @@ bool EventLog::begin() {
   record("BOOT", "sd-ready");
   return true;
 }
+
+bool sd_mounted() { return s_sd_mounted; }
+int sd_last_mount_error() { return s_sd_last_error; }
 
 void EventLog::record(const char *event, const char *detail) {
   if (!ready_) return;

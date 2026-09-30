@@ -22,6 +22,7 @@ class Transfer {
   std::string read(const std::string& args) const;
   std::string commit();
   std::string sdinfo() const;
+  std::string sddiag() const;
   void persist_to_sd();
 };
 uint32_t crc32(const uint8_t* data, size_t size);
