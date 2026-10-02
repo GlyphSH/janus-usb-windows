@@ -30,3 +30,7 @@ If code = 0 Then
 Else
     WScript.Echo "Transfer failed (exit " & code & "):" & vbCrLf & errText
 End If
+
+' Propagate PowerShell's exit code so a scheduled task or CI pipeline can
+' tell success from failure. Without this, cscript would always exit 0.
+WScript.Quit code
