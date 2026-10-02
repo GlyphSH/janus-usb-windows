@@ -1,12 +1,20 @@
 # Janus USB for Windows
 
-**Status: prototype.** The firmware builds and its serial protocol, USB
-fingerprint classifier, and PowerShell / Python / C++ CRC32 implementations
-are tested in CI, including ASan+UBSan on the C++ handler and a cross-
-implementation CRC equivalence check against `zlib.crc32`. The native
-ESP32-S3 TinyUSB build has been flashed to a LilyGo T-Dongle S3 and
-file roundtrips verified against a physical Windows host by the author;
-hardware enumeration and button-timing tests are not yet in CI.
+**Status: prototype.** CI (GitHub-hosted Ubuntu + Windows runners) builds
+the firmware and exercises the host-testable logic: the ASCII protocol
+handler under ASan+UBSan, the USB fingerprint classifier against
+synthesised SETUP traces, the PowerShell / Python / C++ CRC32
+implementations pinned to a common corpus and cross-checked against
+`zlib.crc32`, PSScriptAnalyzer on `janus.ps1`, ruff on the Python, and
+positive + adversarial smoke tests of the `.bat` and `.vbs` wrappers.
+Author-attested, not CI-attested: the native ESP32-S3 TinyUSB build has
+been flashed to a LilyGo T-Dongle S3 and file roundtrips verified
+against a physical Windows host. Hardware-in-the-loop tests (real USB
+enumeration against `usbser.sys` and HID stack, real BOOT-button GPIO
+behavior) are not in CI and cannot be added to the GitHub-hosted
+runners; they would require a self-hosted runner with a dongle
+attached. See [Tests](#tests) for what the current CI does and does
+not cover.
 
 Fresh LilyGo T-Dongle S3 firmware: USB CDC serial text-file transfers and a
 physical-button HID shortcut to open Windows CMD. MIT licensed. Files up to
@@ -104,9 +112,18 @@ python -m unittest discover -s tests
 python tests/crc_cross_check.py
 ```
 
-Hardware enumeration, button timing, and real Windows transfer tests remain
-required before a release. Framework development USB identifiers are used;
-this project does not claim a unique VID/PID allocation for shipping hardware.
+What CI does NOT cover, and cannot cover on GitHub-hosted runners:
+
+- Real USB enumeration against a Windows / macOS / Linux host (`usbser.sys`
+  binding, HID stack binding, descriptor acceptance). Needs a self-hosted
+  runner with the dongle attached, or a lab bench with manual verification.
+- Real BOOT-button electrical behavior (contact bounce, pullup settling,
+  held-vs-tapped detection against actual GPIO voltage). Same.
+- End-to-end file transfer against a real COM port. The ASCII dispatcher
+  and the host clients are exercised, but the TinyUSB + driver glue is not.
+
+Framework development USB identifiers are used; this project does not
+claim a unique VID/PID allocation for shipping hardware.
 
 ## USB fingerprint classifier
 
@@ -131,6 +148,6 @@ Vendor references: [LILYGO board](https://github.com/Xinyuan-LilyGO/T-Dongle-S3)
 Janus exposes CDC-ACM and HID as separate USB interfaces in one composite
 device. Windows binds the CDC child through `usbser.sys` and presents the
 serial endpoint as `COM<N>`; it binds the HID child through the standard HID
-stack. The native TinyUSB descriptor in `usb/usb_descriptors_native.c` keeps
+stack. The native TinyUSB descriptor in `src/usb_descriptors.c` keeps
 those interfaces separate so Windows PnP can create the expected child
 devices.
