@@ -33,12 +33,14 @@ for ($i = 0; $i -lt 256; $i++) {
 
 function Get-Crc32 {
     param([byte[]]$Data)
-    $c = [uint32]0xFFFFFFFF
+    # [uint32]::MaxValue, not 0xFFFFFFFF: PS 5.1 parses the literal as Int32,
+    # which overflows to -1 and fails to cast to UInt32.
+    $c = [uint32]::MaxValue
     foreach ($b in $Data) {
         $idx = [int](($c -bxor [uint32]$b) -band 0xFF)
         $c = [uint32](($c -shr 8) -bxor $script:Crc32Table[$idx])
     }
-    return [uint32]($c -bxor 0xFFFFFFFF)
+    return [uint32]($c -bxor [uint32]::MaxValue)
 }
 
 function Resolve-FullPath {
@@ -177,6 +179,10 @@ $serial.ReadTimeout = 5000
 $serial.WriteTimeout = 5000
 $serial.NewLine = "`n"
 $serial.Encoding = [System.Text.Encoding]::ASCII
+# USB CDC devices wait for DTR before transmitting; pyserial asserts it by
+# default but System.IO.Ports.SerialPort does not, so set both lines high.
+$serial.DtrEnable = $true
+$serial.RtsEnable = $true
 $serial.Open()
 try {
     $serial.DiscardInBuffer()
