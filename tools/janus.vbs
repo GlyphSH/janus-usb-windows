@@ -10,8 +10,10 @@ scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 psScript = fso.BuildPath(scriptDir, "janus.ps1")
 
 cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File """ & psScript & """"
+' cmd.exe quoting: a literal " inside a double-quoted argument is escaped
+' as "" so a path like C:\with "quotes" survives the handoff to powershell.
 For Each arg In WScript.Arguments
-    cmd = cmd & " """ & arg & """"
+    cmd = cmd & " """ & Replace(arg, """", """""") & """"
 Next
 
 Set exec = shell.Exec(cmd)

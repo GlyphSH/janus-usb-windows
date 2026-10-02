@@ -68,18 +68,29 @@ function Assert-Response {
 }
 
 function Send-DeviceFile {
-    param($SerialPort, [byte[]]$Data)
+    param($SerialPort, [byte[]]$Data, [int]$MaxAttempts = 3)
     if ($Data.Length -gt $script:Limit) { throw 'File exceeds 65536 bytes' }
     $crc = Get-Crc32 $Data
-    Assert-Response -SerialPort $SerialPort -Command ("BEGIN {0} {1}" -f $Data.Length, $crc) -Expected 'OK BEGIN'
-    for ($offset = 0; $offset -lt $Data.Length; $offset += 256) {
-        $count = [Math]::Min(256, $Data.Length - $offset)
-        $chunk = New-Object byte[] $count
-        [Array]::Copy($Data, $offset, $chunk, 0, $count)
-        $hex = ([BitConverter]::ToString($chunk) -replace '-', '').ToLower()
-        Assert-Response -SerialPort $SerialPort -Command ("DATA {0} {1}" -f $offset, $hex) -Expected ("OK DATA {0}" -f ($offset + $count))
+    # A failed COMMIT clears receiving_ on the device, so a retry begins a
+    # fresh transfer. Only ERR CRC is retried; ERR SIZE / ERR INCOMPLETE /
+    # timeouts are not recoverable without operator intervention.
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        Assert-Response -SerialPort $SerialPort -Command ("BEGIN {0} {1}" -f $Data.Length, $crc) -Expected 'OK BEGIN'
+        for ($offset = 0; $offset -lt $Data.Length; $offset += 256) {
+            $count = [Math]::Min(256, $Data.Length - $offset)
+            $chunk = New-Object byte[] $count
+            [Array]::Copy($Data, $offset, $chunk, 0, $count)
+            $hex = ([BitConverter]::ToString($chunk) -replace '-', '').ToLower()
+            Assert-Response -SerialPort $SerialPort -Command ("DATA {0} {1}" -f $offset, $hex) -Expected ("OK DATA {0}" -f ($offset + $count))
+        }
+        try {
+            Assert-Response -SerialPort $SerialPort -Command 'COMMIT' -Expected 'OK COMMIT'
+            return
+        } catch {
+            if ($_.Exception.Message -ne 'ERR CRC' -or $attempt -ge $MaxAttempts) { throw }
+            Start-Sleep -Milliseconds 50
+        }
     }
-    Assert-Response -SerialPort $SerialPort -Command 'COMMIT' -Expected 'OK COMMIT'
 }
 
 function ConvertFrom-HexChunk {
@@ -93,23 +104,26 @@ function ConvertFrom-HexChunk {
 }
 
 function Receive-DeviceFile {
-    param($SerialPort)
-    $info = Invoke-Request -SerialPort $SerialPort -Command 'INFO'
-    $fields = $info -split ' '
-    if ($fields.Count -ne 3 -or $fields[0] -ne 'FILE') { throw 'Invalid file metadata' }
-    $size = [int]$fields[1]
-    $checksum = [uint32]$fields[2]
-    if ($size -lt 0 -or $size -gt $script:Limit) { throw 'Invalid file size' }
-    $result = New-Object byte[] $size
-    for ($offset = 0; $offset -lt $size; $offset += 256) {
-        $count = [Math]::Min(256, $size - $offset)
-        $reply = Invoke-Request -SerialPort $SerialPort -Command ("READ {0} {1}" -f $offset, $count)
-        if (-not $reply.StartsWith('DATA ')) { throw 'Invalid chunk response' }
-        $chunk = ConvertFrom-HexChunk -Hex $reply.Substring(5) -Count $count
-        [Array]::Copy($chunk, 0, $result, $offset, $count)
+    param($SerialPort, [int]$MaxAttempts = 3)
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        $info = Invoke-Request -SerialPort $SerialPort -Command 'INFO'
+        $fields = $info -split ' '
+        if ($fields.Count -ne 3 -or $fields[0] -ne 'FILE') { throw 'Invalid file metadata' }
+        $size = [int]$fields[1]
+        $checksum = [uint32]$fields[2]
+        if ($size -lt 0 -or $size -gt $script:Limit) { throw 'Invalid file size' }
+        $result = New-Object byte[] $size
+        for ($offset = 0; $offset -lt $size; $offset += 256) {
+            $count = [Math]::Min(256, $size - $offset)
+            $reply = Invoke-Request -SerialPort $SerialPort -Command ("READ {0} {1}" -f $offset, $count)
+            if (-not $reply.StartsWith('DATA ')) { throw 'Invalid chunk response' }
+            $chunk = ConvertFrom-HexChunk -Hex $reply.Substring(5) -Count $count
+            [Array]::Copy($chunk, 0, $result, $offset, $count)
+        }
+        if ((Get-Crc32 $result) -eq $checksum) { return ,$result }
+        if ($attempt -ge $MaxAttempts) { throw 'CRC mismatch after retries' }
+        Start-Sleep -Milliseconds 50
     }
-    if ((Get-Crc32 $result) -ne $checksum) { throw 'CRC mismatch' }
-    return ,$result
 }
 
 function Show-SdStatus {
@@ -158,6 +172,10 @@ function Compare-Bytes {
     }
     return $true
 }
+
+# Test harnesses dot-source this script to exercise Get-Crc32 and friends
+# without opening a serial port. The env var is set only by tests/.
+if ($env:JANUS_PS1_TEST_MODE) { return }
 
 if ($Action -eq 'ports') {
     Show-Ports

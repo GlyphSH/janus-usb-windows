@@ -10,5 +10,90 @@ jobs:
           python-version: '3.12'
       - run: pip install -r requirements.txt
       - run: platformio run
-      - run: c++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -I include src/transfer.cpp tests/transfer_test.cpp -o /tmp/janus-test && /tmp/janus-test
-      - run: python -m unittest discover -s tests
+      - name: Protocol tests (ASan+UBSan, -Wshadow -Wpedantic)
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror -Wshadow -Wpedantic \
+            -fsanitize=address,undefined \
+            -I include src/transfer.cpp tests/transfer_test.cpp -o /tmp/janus-test
+          /tmp/janus-test
+      - name: Fingerprint tests (ASan+UBSan, -Wshadow -Wpedantic)
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror -Wshadow -Wpedantic \
+            -fsanitize=address,undefined \
+            -I include src/usb_fingerprint.cpp tests/fingerprint_test.cpp -o /tmp/janus-fp-test
+          /tmp/janus-fp-test
+      - name: Python client tests
+        run: python -m unittest discover -s tests
+      - name: Python client syntax check
+        run: python -m py_compile tools/janus.py tests/crc_cross_check.py tests/test_client.py
+      - name: Python lint (ruff)
+        run: |
+          pip install ruff
+          ruff check --select E,F,C90 --ignore E501 tools tests
+      - name: Cross-implementation CRC32 equivalence (cpp vs zlib)
+        run: python tests/crc_cross_check.py
+
+  windows-tools:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PSScriptAnalyzer
+        shell: powershell
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force
+
+      - name: Parse-check janus.ps1
+        shell: powershell
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path .\tools\janus.ps1).Path, [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) {
+              $errors | Format-List | Out-String | Write-Output
+              throw "janus.ps1 has parse errors"
+          }
+
+      - name: Lint janus.ps1 with PSScriptAnalyzer
+        shell: powershell
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path .\tools\janus.ps1 `
+              -Severity @('Error','Warning','Information')
+          $results | Format-Table -AutoSize | Out-String | Write-Output
+          if ($results | Where-Object Severity -eq 'Error') {
+              throw "PSScriptAnalyzer found Error-severity issues"
+          }
+
+      - name: Get-Crc32 vector tests (Windows PowerShell 5.1)
+        shell: powershell
+        run: .\tests\janus_ps1_tests.ps1
+
+      - name: Get-Crc32 vector tests (PowerShell 7+)
+        shell: pwsh
+        run: .\tests\janus_ps1_tests.ps1
+
+      - name: Cross-implementation CRC32 equivalence on Windows
+        shell: pwsh
+        env:
+          CXX: g++  # windows-latest ships g++ via Strawberry/MinGW
+        run: python tests/crc_cross_check.py
+
+      - name: janus.bat forwards args and surfaces errors
+        shell: cmd
+        run: |
+          .\tools\janus.bat ports || exit /b 1
+          REM An invalid Action must propagate as a non-zero exit, proving the
+          REM batch wrapper is forwarding args to PowerShell's ValidateSet.
+          .\tools\janus.bat not-a-real-action && exit /b 1
+          exit /b 0
+
+      - name: janus.vbs forwards args and surfaces errors
+        shell: cmd
+        run: |
+          cscript //nologo .\tools\janus.vbs ports || exit /b 1
+          cscript //nologo .\tools\janus.vbs not-a-real-action && exit /b 1
+          exit /b 0

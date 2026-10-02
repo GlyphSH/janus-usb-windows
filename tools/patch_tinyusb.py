@@ -4,7 +4,12 @@ The espressif__tinyusb managed component is content-hashed by the ESP-IDF
 component manager; edits to it are undone on the next build when the hash is
 verified. We patch it in place right before usbd.c is compiled, so the
 observer call always ends up in the object file.
+
+PlatformIO injects `Import` and `env` into this script's module scope at
+runtime; both are invisible to static analysers, so we silence ruff on
+them in this file.
 """
+# ruff: noqa: F821
 
 import os
 import subprocess

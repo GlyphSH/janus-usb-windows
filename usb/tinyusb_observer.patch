@@ -9,7 +9,7 @@
            break;
          }
          _usbd_queued_setup--;
-+        janus_usb_observe_setup(tud_time_millis() * 1000u,
++        janus_usb_observe_setup((uint64_t)esp_timer_get_time(),
 +                                event.setup_received.bmRequestType,
 +                                event.setup_received.bRequest,
 +                                event.setup_received.wValue,

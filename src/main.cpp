@@ -23,6 +23,15 @@ namespace {
 constexpr const char *TAG = "janus";
 constexpr gpio_num_t BUTTON_PIN = GPIO_NUM_0;
 
+// Design note (alternatives considered):
+//   g_transfer is a namespace-scope global so its 128 KiB of buffers live
+//   in BSS, not on the FreeRTOS task stack. The alternative is to allocate
+//   on the heap at app_main entry (via std::unique_ptr<Transfer>), which
+//   would survive a hypothetical module relocation and could be shared
+//   between tasks. We picked BSS because this firmware has exactly one
+//   serial dispatch task and one Transfer instance for the device's
+//   lifetime; the global makes the single-ownership invariant visible at
+//   file scope and avoids any heap-exhaustion failure mode during boot.
 Transfer g_transfer;
 EventLog g_event_log;
 janus::UsbFingerprint g_fingerprint;
@@ -60,6 +69,10 @@ void poll_button() {
   }
 }
 
+// Dispatcher budget: at most 1024 bytes drained per 2 ms tick (see the
+// vTaskDelay in app_main). At 115200 baud that's ~230 bytes/tick worst
+// case, so the budget comfortably outpaces the wire; the explicit cap
+// keeps a stuck/flooding host from monopolising the task.
 void poll_serial() {
   for (int budget = 0; budget < 1024 && janus_usb::available(); ++budget) {
     const int b = janus_usb::read();
@@ -74,6 +87,11 @@ void poll_serial() {
         g_event_log.record("CLIENT_WINDOWS");
         reply = "OK CLIENT";
       } else if (g_line == "FINGERPRINT") {
+        // Threat model: this verb is reachable only to a host that already
+        // owns the CDC endpoint (i.e. physical USB access). The reply is a
+        // conservative classification of USB SETUP packets that *this host*
+        // sent during enumeration; it cannot leak traces from another host.
+        // See README.md "USB fingerprint classifier" for the full rationale.
         const auto r = g_fingerprint.classify();
         char buf[64];
         std::snprintf(buf, sizeof(buf), "FP %s %u %u %u",
@@ -114,7 +132,7 @@ void configure_button() {
 
 }  // namespace
 
-extern "C" void janus_usb_observe_setup(uint32_t elapsed_us,
+extern "C" void janus_usb_observe_setup(uint64_t elapsed_us,
                                         uint8_t bm_request_type, uint8_t b_request,
                                         uint16_t w_value, uint16_t w_index,
                                         uint16_t w_length) {
@@ -124,7 +142,7 @@ extern "C" void janus_usb_observe_setup(uint32_t elapsed_us,
 
 extern "C" void janus_usb_observe_hid_led(uint8_t led_mask) {
   g_fingerprint.observe_hid_led(led_mask,
-                                static_cast<uint32_t>(esp_timer_get_time()));
+                                static_cast<uint64_t>(esp_timer_get_time()));
 }
 
 extern "C" void app_main(void) {

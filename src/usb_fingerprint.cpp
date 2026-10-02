@@ -19,7 +19,7 @@ void UsbFingerprint::observe_setup(const UsbSetupTrace& t) {
       hid_set_report_ != UINT16_MAX) ++hid_set_report_;
 }
 
-void UsbFingerprint::observe_hid_led(uint8_t led_mask, uint32_t elapsed_us) {
+void UsbFingerprint::observe_hid_led(uint8_t led_mask, uint64_t elapsed_us) {
   last_led_mask_ = led_mask;
   ++hid_led_reports_;
   observe_setup(UsbSetupTrace{elapsed_us, 0x21, 0x09, 0x0200, 0, 1});
@@ -33,7 +33,7 @@ FingerprintResult UsbFingerprint::classify() const {
   // never treated as proof; it only contributes when combined with request
   // shape. The observer records raw traces so signatures can be improved from
   // captures without changing the USB transport.
-  const uint32_t span = last_setup_us_ - first_setup_us_;
+  const uint64_t span = last_setup_us_ - first_setup_us_;
   if (hid_led_reports_ != 0) {
     r.os = HostOs::Windows;
     r.confidence = (span < 2000000u && standard_get_descriptor_ >= 3) ? 70 : 45;

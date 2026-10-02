@@ -13,7 +13,9 @@ extern "C" {
  * tinyusb component. Returns microseconds since boot. */
 int64_t esp_timer_get_time(void);
 
-void janus_usb_observe_setup(uint32_t elapsed_us, uint8_t bm_request_type,
+/* elapsed_us is 64-bit microseconds since boot. See include/usb_fingerprint.h
+ * for why uint32_t microseconds (which wrap at ~71 minutes) are not enough. */
+void janus_usb_observe_setup(uint64_t elapsed_us, uint8_t bm_request_type,
                              uint8_t b_request, uint16_t w_value,
                              uint16_t w_index, uint16_t w_length);
 

@@ -1,8 +1,12 @@
 # Janus USB for Windows
 
-**Status: prototype.** The Arduino firmware builds and its serial protocol is
-tested. The native ESP32-S3 TinyUSB migration is still in progress and has not
-been flashed or validated on a physical host.
+**Status: prototype.** The firmware builds and its serial protocol, USB
+fingerprint classifier, and PowerShell / Python / C++ CRC32 implementations
+are tested in CI, including ASan+UBSan on the C++ handler and a cross-
+implementation CRC equivalence check against `zlib.crc32`. The native
+ESP32-S3 TinyUSB build has been flashed to a LilyGo T-Dongle S3 and
+file roundtrips verified against a physical Windows host by the author;
+hardware enumeration and button-timing tests are not yet in CI.
 
 Fresh LilyGo T-Dongle S3 firmware: USB CDC serial text-file transfers and a
 physical-button HID shortcut to open Windows CMD. MIT licensed. Files up to
@@ -48,9 +52,12 @@ wscript tools\janus.vbs -Port COM7 put input.txt  # hidden, result in a message 
 
 Output files must not already exist. Close other serial terminals first.
 Transfers use stop-and-wait chunks, CRC32, and exact byte comparison for
-`roundtrip`. CRC detects corruption, not malicious modification. On a timeout,
-reconnect and restart the transfer. An incomplete upload does not replace the
-previous committed file. Only one host tool should use the port at a time.
+`roundtrip`. CRC detects corruption, not malicious modification. The host
+clients retry a failed COMMIT or a verification CRC mismatch up to three
+times. On a timeout, reconnect and restart the transfer. An incomplete
+upload does not replace the previous committed file; neither does a torn
+SD write (the mirror lands via write-to-tmp-then-rename). Only one host
+tool should use the port at a time.
 After `put`/`roundtrip` the client also queries `SDINFO` and prints whether
 the dongle wrote the file to its SD card.
 
@@ -79,21 +86,42 @@ and keyboard-layout behavior need physical Windows testing.
 ## Tests
 
 ```sh
-c++ -std=c++17 -Wall -Wextra -Werror -I include src/transfer.cpp tests/transfer_test.cpp -o /tmp/janus-test
+# Protocol handler, ABORT / SDDIAG / re-BEGIN state machine, CRC vector corpus.
+c++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+    -I include src/transfer.cpp tests/transfer_test.cpp -o /tmp/janus-test
 /tmp/janus-test
+
+# USB fingerprint classifier (host build).
+c++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+    -I include src/usb_fingerprint.cpp tests/fingerprint_test.cpp -o /tmp/janus-fp-test
+/tmp/janus-fp-test
+
+# Python client unit tests plus CRC32 reference corpus.
 python -m unittest discover -s tests
+
+# Cross-implementation CRC32 agreement (cpp vs zlib). The PowerShell
+# implementation is pinned against the same corpus in the Windows CI job.
+python tests/crc_cross_check.py
 ```
 
 Hardware enumeration, button timing, and real Windows transfer tests remain
 required before a release. Framework development USB identifiers are used;
 this project does not claim a unique VID/PID allocation for shipping hardware.
 
-The USB fingerprinting layer is trace-driven. `usb_fingerprint.*` records
-standard setup packets and HID LED reports and classifies only signals it can
-justify; unknown traces remain `unknown`. The Arduino USB wrapper does not
-expose every standard setup packet yet, so the native TinyUSB observer is a
-separate integration step. This boundary prevents the firmware from claiming
-passive OS detection before it has actually observed the enumeration stream.
+## USB fingerprint classifier
+
+`usb_fingerprint.*` records standard setup packets and HID LED reports and
+classifies only signals it can justify; unknown traces remain `unknown`.
+The native TinyUSB observer in `usb/tinyusb_observer.patch` feeds it 64-bit
+`esp_timer_get_time()` microseconds, so an idle-then-replugged device does
+not hit the ~71-minute `uint32_t` wrap. The `FINGERPRINT` CDC verb returns
+a one-line summary of what *this host* sent during its own enumeration.
+
+Threat model: the verb is reachable only to a host that already owns the
+CDC endpoint, i.e. physical USB access. It cannot leak traces from another
+host, and the classifier is passive: it never scans, probes, or persists
+anything beyond RAM. This device is a bench tool, not a defensive endpoint;
+if that profile changes, gate the verb behind a build flag.
 
 Vendor references: [LILYGO board](https://github.com/Xinyuan-LilyGO/T-Dongle-S3),
 [Arduino ESP32 USB implementation](https://github.com/espressif/arduino-esp32/tree/2.0.17/libraries/USB).
